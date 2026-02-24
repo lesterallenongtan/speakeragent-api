@@ -256,6 +256,13 @@ def health_check():
         return {"status": "unhealthy", "error": str(e), "cron_active": cron_active}
 
 
+@app.post("/api/test-email")
+def test_email(email: str = Query(...), speaker_id: str = Query(default="test_123")):
+    """Test endpoint to verify Resend email delivery."""
+    _send_welcome_email(email, "Test User", speaker_id)
+    return {"status": "sent", "to": email, "speaker_id": speaker_id}
+
+
 # ── Leads ───────────────────────────────────────────────────
 
 @app.get("/api/leads")
