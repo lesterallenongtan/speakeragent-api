@@ -29,20 +29,28 @@ logger = logging.getLogger(__name__)
 
 def _run_scout_for_speaker(speaker_id: str, profile_path: str):
     """Run scout pipeline for a single speaker."""
+    import sys
     try:
         from src.agent.scout import run_scout
-        logger.info(f"[SCOUT] Starting scout for {speaker_id}")
+        print(f"[SCOUT] Starting scout for {speaker_id} with profile {profile_path}", file=sys.stderr, flush=True)
         summary = run_scout(
             profile_path=profile_path,
             speaker_id=speaker_id,
         )
-        logger.info(
-            f"[SCOUT] Complete for {speaker_id}: pushed {summary.get('pushed', 0)} leads, "
-            f"RED={summary.get('triage_counts', {}).get('RED', 0)} "
-            f"YELLOW={summary.get('triage_counts', {}).get('YELLOW', 0)}"
+        print(
+            f"[SCOUT] Complete for {speaker_id}: "
+            f"urls={summary.get('total_urls', 0)} "
+            f"scraped={summary.get('scraped', 0)} "
+            f"scored={summary.get('scored', 0)} "
+            f"pushed={summary.get('pushed', 0)} "
+            f"dupes={summary.get('skipped_duplicate', 0)} "
+            f"scrape_fail={summary.get('skipped_scrape_fail', 0)} "
+            f"score_fail={summary.get('skipped_score_fail', 0)}",
+            file=sys.stderr, flush=True,
         )
         return summary
     except Exception as e:
+        print(f"[SCOUT] Failed for {speaker_id}: {e}", file=sys.stderr, flush=True)
         logger.error(f"[SCOUT] Failed for {speaker_id}: {e}", exc_info=True)
         return {'error': str(e)}
 
@@ -262,15 +270,19 @@ def trigger_scout(speaker_id: Optional[str] = Query(None)):
 
 def _send_welcome_email(email: str, full_name: str, speaker_id: str):
     """Send welcome email with speaker_id using Resend API."""
+    import sys
+    print(f"[EMAIL] Starting welcome email for {speaker_id} to {email}", file=sys.stderr, flush=True)
+
     resend_key = os.getenv('RESEND_API_KEY', '')
     if not resend_key:
-        logger.warning(f"[EMAIL] No RESEND_API_KEY set. Skipping welcome email for {speaker_id}")
+        print(f"[EMAIL] No RESEND_API_KEY set. Skipping welcome email for {speaker_id}", file=sys.stderr, flush=True)
         return
 
     email_from = os.getenv('EMAIL_FROM', 'SpeakerAgent.AI <onboarding@resend.dev>')
     frontend_url = os.getenv('FRONTEND_URL', 'https://frontend-production-4a8a.up.railway.app')
 
     try:
+        print(f"[EMAIL] Sending via Resend from={email_from} to={email}", file=sys.stderr, flush=True)
         resp = http_requests.post(
             'https://api.resend.com/emails',
             headers={
@@ -296,11 +308,13 @@ def _send_welcome_email(email: str, full_name: str, speaker_id: str):
             },
             timeout=10,
         )
+        print(f"[EMAIL] Resend response: {resp.status_code} {resp.text}", file=sys.stderr, flush=True)
         if resp.status_code in (200, 201):
             logger.info(f"[EMAIL] Welcome email sent to {email} for {speaker_id}")
         else:
             logger.error(f"[EMAIL] Failed to send: {resp.status_code} {resp.text}")
     except Exception as e:
+        print(f"[EMAIL] Error: {e}", file=sys.stderr, flush=True)
         logger.error(f"[EMAIL] Error sending welcome email: {e}")
 
 
@@ -325,13 +339,13 @@ def _create_profile_and_run_scout(speaker_id: str, body):
             'min_honorarium': body.min_honorarium or 0,
         }
 
-        # Build discussion_points from topic titles for better search queries
+        # Build discussion_points from topic title strings for better search queries
         discussion_points = []
-        for t in (topics if topics else []):
-            # Add the full topic title and its first key phrase
-            discussion_points.append(t)
-            phrase = t.split(':')[0].strip()
-            if phrase != t:
+        topic_strings = body.topics or []
+        for t_str in topic_strings:
+            discussion_points.append(t_str)
+            phrase = t_str.split(':')[0].strip()
+            if phrase != t_str:
                 discussion_points.append(phrase)
         profile['discussion_points'] = discussion_points[:10]
 

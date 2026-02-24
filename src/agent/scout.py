@@ -19,6 +19,11 @@ from src.api.airtable import AirtableAPI
 logger = logging.getLogger(__name__)
 
 
+def _log(msg: str):
+    """Print to stderr for guaranteed visibility in Railway logs."""
+    print(msg, file=sys.stderr, flush=True)
+
+
 def load_profile(profile_path: str) -> dict:
     """Load a speaker profile from JSON file."""
     path = Path(profile_path)
@@ -78,35 +83,35 @@ def run_scout(
 
     # Step 1: Generate search queries
     queries = generate_search_queries(profile)
-    logger.info(f"Generated {len(queries)} search queries")
+    _log(f"[SCOUT] Generated {len(queries)} search queries")
     for i, q in enumerate(queries):
-        logger.info(f"  Q{i+1}: {q}")
+        _log(f"  Q{i+1}: {q}")
 
     # Step 2: Search for conference URLs
     seed_path = str(Path(profile_path).parent.parent / 'seed_urls.json')
+    _log(f"[SCOUT] Seed URL path: {seed_path} (exists={Path(seed_path).exists()})")
     urls = web_search(queries, results_per_query=3, delay=2.0, seed_urls_path=seed_path)
     summary['total_urls'] = len(urls)
-    logger.info(f"Found {len(urls)} unique URLs to process")
+    _log(f"[SCOUT] Found {len(urls)} unique URLs to process")
 
     if not urls:
-        logger.warning("No URLs found from search. Try different queries or check rate limits.")
+        _log("[SCOUT] WARNING: No URLs found from any source!")
         return summary
 
     # Step 3-5: Process each URL
     processed = 0
     for i, url in enumerate(urls):
         if processed >= max_leads:
-            logger.info(f"Reached max leads ({max_leads}), stopping.")
+            _log(f"[SCOUT] Reached max leads ({max_leads}), stopping.")
             break
 
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Processing [{i+1}/{len(urls)}]: {url}")
+        _log(f"[SCOUT] [{i+1}/{len(urls)}] Processing: {url}")
 
         # Step 3a: Scrape
         scraped = scrape_page(url)
         if not scraped:
             summary['skipped_scrape_fail'] += 1
-            logger.warning(f"  SKIP: Scrape failed")
+            _log(f"[SCOUT] [{i+1}] SKIP: Scrape failed for {url}")
             continue
         summary['scraped'] += 1
 
@@ -114,12 +119,12 @@ def run_scout(
         if not conf_name or conf_name == url:
             conf_name = url.split('/')[2]  # Use domain as fallback
 
-        logger.info(f"  Title: {conf_name}")
+        _log(f"[SCOUT] [{i+1}] Title: {conf_name}")
 
         # Step 3b: Check for duplicates
         if not dry_run and airtable.lead_exists(speaker_id, conf_name):
             summary['skipped_duplicate'] += 1
-            logger.info(f"  SKIP: Duplicate")
+            _log(f"[SCOUT] [{i+1}] SKIP: Duplicate")
             continue
 
         # Step 3c: Score with Claude
@@ -131,7 +136,7 @@ def run_scout(
         )
         if not score_result:
             summary['skipped_score_fail'] += 1
-            logger.warning(f"  SKIP: Scoring failed")
+            _log(f"[SCOUT] [{i+1}] SKIP: Scoring failed")
             continue
         summary['scored'] += 1
 
@@ -140,8 +145,7 @@ def run_scout(
         best_topic = score_result['best_topic']
         summary['triage_counts'][triage] += 1
 
-        logger.info(f"  Score: {match_score}/100 → {triage}")
-        logger.info(f"  Best topic: {best_topic}")
+        _log(f"[SCOUT] [{i+1}] Score: {match_score}/100 → {triage} | Topic: {best_topic}")
 
         # Step 3d: Generate hook (skip for RED — poor match)
         hook = ''
@@ -156,9 +160,9 @@ def run_scout(
             )
             hook = pitch_result.get('hook', '')
             cta = pitch_result.get('cta', '')
-            logger.info(f"  Hook: {hook[:80]}...")
+            _log(f"[SCOUT] [{i+1}] Hook generated ({len(hook)} chars)")
         else:
-            logger.info(f"  Hook: SKIPPED (RED lead, score < 35)")
+            _log(f"[SCOUT] [{i+1}] Hook SKIPPED (RED lead, score < 35)")
 
         # Step 3e: Build Airtable payload
         lead_payload = {
@@ -190,15 +194,15 @@ def run_scout(
 
         # Step 3f: Push to Airtable
         if dry_run:
-            logger.info(f"  DRY RUN — would push: {json.dumps(lead_payload, indent=2)}")
+            _log(f"[SCOUT] [{i+1}] DRY RUN — would push: {conf_name}")
             summary['pushed'] += 1
         else:
             result = airtable.push_lead(lead_payload)
             if result:
                 summary['pushed'] += 1
-                logger.info(f"  PUSHED to Airtable")
+                _log(f"[SCOUT] [{i+1}] PUSHED to Airtable: {conf_name}")
             else:
-                logger.warning(f"  PUSH FAILED (may be duplicate)")
+                _log(f"[SCOUT] [{i+1}] PUSH FAILED (may be duplicate): {conf_name}")
 
         summary['leads'].append({
             'conference': conf_name,
@@ -210,18 +214,17 @@ def run_scout(
         processed += 1
 
     # Print summary
-    logger.info(f"\n{'='*60}")
-    logger.info(f"SCOUT RUN COMPLETE")
-    logger.info(f"  URLs found:        {summary['total_urls']}")
-    logger.info(f"  Successfully scraped: {summary['scraped']}")
-    logger.info(f"  Scored:            {summary['scored']}")
-    logger.info(f"  Pushed to Airtable: {summary['pushed']}")
-    logger.info(f"  Skipped (duplicate): {summary['skipped_duplicate']}")
-    logger.info(f"  Skipped (scrape fail): {summary['skipped_scrape_fail']}")
-    logger.info(f"  Skipped (score fail): {summary['skipped_score_fail']}")
-    logger.info(f"  Triage: RED={summary['triage_counts']['RED']} "
-                f"YELLOW={summary['triage_counts']['YELLOW']} "
-                f"GREEN={summary['triage_counts']['GREEN']}")
+    _log(f"[SCOUT] ====== RUN COMPLETE ======")
+    _log(f"[SCOUT]   URLs found:        {summary['total_urls']}")
+    _log(f"[SCOUT]   Successfully scraped: {summary['scraped']}")
+    _log(f"[SCOUT]   Scored:            {summary['scored']}")
+    _log(f"[SCOUT]   Pushed to Airtable: {summary['pushed']}")
+    _log(f"[SCOUT]   Skipped (duplicate): {summary['skipped_duplicate']}")
+    _log(f"[SCOUT]   Skipped (scrape fail): {summary['skipped_scrape_fail']}")
+    _log(f"[SCOUT]   Skipped (score fail): {summary['skipped_score_fail']}")
+    _log(f"[SCOUT]   Triage: GREEN={summary['triage_counts']['GREEN']} "
+         f"YELLOW={summary['triage_counts']['YELLOW']} "
+         f"RED={summary['triage_counts']['RED']}")
 
     return summary
 

@@ -246,32 +246,48 @@ def web_search(queries: list[str],
                seed_urls_path: str = '') -> list[str]:
     """Search the web and collect unique URLs.
 
-    Tries multiple search backends in order:
+    ALWAYS includes seed URLs to guarantee a minimum set of results.
+    Also tries search backends for fresh results:
     1. googlesearch-python
     2. Bing scraping via requests
-    3. Seed URL file (curated list of known conferences)
-    Falls back gracefully on errors.
     """
-    # Try googlesearch-python first
-    urls = _google_search(queries, results_per_query, delay)
-    if urls:
-        return urls
+    import sys
+    all_urls = []
+    seen = set()
+    seed_count = 0
 
-    # Fallback: Bing search via requests
-    logger.info("googlesearch returned 0 results, falling back to Bing")
-    urls = _bing_search(queries, results_per_query, delay)
-    if urls:
-        return urls
-
-    # Final fallback: seed URL file
+    # ALWAYS load seed URLs first — these are our guaranteed floor
     if seed_urls_path:
-        logger.info(f"Search APIs unavailable, loading seed URLs from {seed_urls_path}")
-        urls = _load_seed_urls(seed_urls_path)
-        if urls:
-            return urls
+        seed_urls = _load_seed_urls(seed_urls_path)
+        seed_count = len(seed_urls)
+        for u in seed_urls:
+            if u not in seen:
+                seen.add(u)
+                all_urls.append(u)
+        print(f"[SEARCH] Loaded {seed_count} seed URLs as guaranteed base", file=sys.stderr, flush=True)
+    else:
+        print("[SEARCH] WARNING: No seed_urls_path provided", file=sys.stderr, flush=True)
 
-    logger.warning("All search methods returned 0 results")
-    return []
+    # Try googlesearch-python for fresh results
+    search_urls = _google_search(queries, results_per_query, delay)
+    if not search_urls:
+        print("[SEARCH] Google returned 0 results, trying Bing", file=sys.stderr, flush=True)
+        search_urls = _bing_search(queries, results_per_query, delay)
+
+    print(f"[SEARCH] Search engines returned {len(search_urls)} URLs", file=sys.stderr, flush=True)
+
+    # Merge search results (deduplicated)
+    for u in search_urls:
+        if u not in seen:
+            seen.add(u)
+            all_urls.append(u)
+
+    if not all_urls:
+        print("[SEARCH] WARNING: No URLs found from any source!", file=sys.stderr, flush=True)
+    else:
+        print(f"[SEARCH] Total URLs to process: {len(all_urls)} ({seed_count} seed + {len(search_urls)} search)", file=sys.stderr, flush=True)
+
+    return all_urls
 
 
 def _load_seed_urls(path: str) -> list[str]:
