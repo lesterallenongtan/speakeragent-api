@@ -323,3 +323,62 @@ class AirtableAPI:
         except Exception as e:
             logger.error(f"Failed to update speaker {record_id}: {e}")
             return None
+
+    def get_attachment_field_id(self, table_name: str, field_name: str) -> Optional[str]:
+        """Return the Airtable field ID for an attachment field by table/field name."""
+        try:
+            resp = requests.get(
+                f'https://api.airtable.com/v0/meta/bases/{self.base_id}/tables',
+                headers=self.headers,
+                timeout=10,
+            )
+            logger.info(f"[ATTACH] Meta API response: {resp.status_code}")
+            resp.raise_for_status()
+            tables = resp.json().get('tables', [])
+            logger.info(f"[ATTACH] Available tables: {[t['name'] for t in tables]}")
+            for table in tables:
+                if table['name'] == table_name:
+                    fields = {f['name']: f['id'] for f in table.get('fields', [])}
+                    logger.info(f"[ATTACH] Fields in '{table_name}': {list(fields.keys())}")
+                    field_id = fields.get(field_name)
+                    if field_id:
+                        logger.info(f"[ATTACH] Field '{field_name}' -> {field_id}")
+                    else:
+                        logger.error(f"[ATTACH] Field '{field_name}' not found in '{table_name}'")
+                    return field_id
+            logger.error(f"[ATTACH] Table '{table_name}' not found in base")
+        except Exception as e:
+            logger.error(f"[ATTACH] Meta lookup failed for {table_name}.{field_name}: {e}")
+        return None
+
+    def upload_attachment(self, record_id: str, field_name_or_id: str,
+                          filename: str, content_b64: str,
+                          mime_type: str = 'application/octet-stream') -> bool:
+        """Upload an attachment to an Airtable record via the Content API.
+
+        Endpoint: POST https://content.airtable.com/v0/{baseId}/{recordId}/{fieldIdOrName}/uploadAttachment
+        Body: JSON with base64-encoded file content.
+        """
+        url = f'https://content.airtable.com/v0/{self.base_id}/{record_id}/{field_name_or_id}/uploadAttachment'
+        logger.info(f"[ATTACH] Uploading '{filename}' ({mime_type}) to {url}")
+        try:
+            resp = requests.post(
+                url,
+                headers={
+                    'Authorization': f'Bearer {self.api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'contentType': mime_type,
+                    'file': content_b64,
+                    'filename': filename,
+                },
+                timeout=30,
+            )
+            logger.info(f"[ATTACH] Upload response: {resp.status_code} {resp.text[:300]}")
+            resp.raise_for_status()
+            logger.info(f"[ATTACH] Uploaded '{filename}' to record {record_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[ATTACH] Failed to upload '{filename}' to {record_id}: {e}")
+            return False
