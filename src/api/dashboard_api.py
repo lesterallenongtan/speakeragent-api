@@ -830,14 +830,21 @@ def register_speaker(body: SpeakerRegistration):
     if not record:
         raise HTTPException(status_code=500, detail="Failed to create speaker")
 
-    # Upload attachments to Airtable
+    # Upload attachments to Airtable (non-blocking)
     if body.attachments:
-        attachment_field_name = os.getenv('AIRTABLE_ATTACHMENT_FIELD', 'Attachments')
-        for attachment in body.attachments:
-            try:
-                at.upload_attachment(record["id"], attachment_field_name, attachment.filename, attachment.content, attachment.type or 'application/octet-stream')
-            except Exception as e:
-                logger.error(f"Failed to upload attachment '{attachment.filename}': {e}")
+        def _upload_attachments(record_id: str, attachments):
+            field_name = os.getenv('AIRTABLE_ATTACHMENT_FIELD', 'Attachments')
+            _at = get_airtable()
+            for attachment in attachments:
+                try:
+                    _at.upload_attachment(record_id, field_name, attachment.filename, attachment.content, attachment.type or 'application/octet-stream')
+                except Exception as e:
+                    logger.error(f"Failed to upload attachment '{attachment.filename}': {e}")
+        threading.Thread(
+            target=_upload_attachments,
+            args=(record["id"], body.attachments),
+            daemon=True,
+        ).start()
 
     # Send welcome email with speaker_id (non-blocking)
     threading.Thread(
