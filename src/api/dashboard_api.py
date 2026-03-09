@@ -722,6 +722,76 @@ def _send_outreach_email(emailFrom:str, at: AirtableAPI, lead_id: str, fields: d
         logger.error(f"[EMAIL] Error sending outreach for lead {lead_id}: {e}")
 
 
+def _clean_profile_with_ai(profile: dict) -> dict:
+    """Use Claude to clean and normalize free-text profile fields before scout runs.
+
+    Fixes stream-of-consciousness input, dictation artifacts, missing punctuation,
+    run-on sentences, and inconsistent formatting without changing meaning.
+    Returns the original profile unchanged if cleaning fails.
+    """
+    api_key = os.getenv('CLAUDE_API_KEY', '')
+    if not api_key:
+        logger.warning("[CLEAN] CLAUDE_API_KEY not set, skipping profile cleaning")
+        return profile
+
+    fields_to_clean = {
+        'professional_title': profile.get('professional_title', ''),
+        'credentials': profile.get('credentials', ''),
+        'bio': profile.get('bio', ''),
+        'topics': profile.get('topics', []),
+        'target_industries': profile.get('target_industries', []),
+        'discussion_points': profile.get('discussion_points', []),
+    }
+
+    prompt = f"""You are a data cleaning assistant for a speaker profile system.
+
+Clean and normalize the following speaker profile fields. Fix only formatting issues:
+- Stream-of-consciousness or dictation output → add proper punctuation and capitalization
+- Run-on sentences → split or punctuate correctly
+- Missing commas in lists → restore them
+- Obvious typos and capitalization errors
+- Inconsistent spacing
+
+Rules:
+- Do NOT change the meaning, add content, or remove information
+- Keep lists as arrays, keep strings as strings
+- Return ONLY a valid JSON object with exactly the same keys
+- If a field is empty or cannot be cleaned, return it as an empty string or empty array, but do not remove keys
+- Do NOT include any explanatory text, apologies, or disclaimers in the output
+- Do NOT hallucinate information or make assumptions beyond basic formatting fixes
+
+INPUT:
+{json.dumps(fields_to_clean, indent=2)}
+
+Return JSON only, no markdown, no extra text."""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = os.getenv('CLAUDE_HAIKU_MODEL', 'claude-haiku-4-5-20251001')
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = response.content[0].text.strip()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1:
+            logger.warning("[CLEAN] No JSON in Claude response, using original profile")
+            return profile
+        cleaned = json.loads(text[start:end + 1])
+        # Merge only non-empty cleaned values back
+        for key, val in cleaned.items():
+            if val:
+                profile[key] = val
+        logger.info(f"[CLEAN] Profile fields cleaned: {list(cleaned.keys())}")
+        return profile
+    except Exception as e:
+        logger.warning(f"[CLEAN] Profile cleaning failed: {e}, using original")
+        return profile
+
+
 def _create_profile_and_run_scout(speaker_id: str, body):
     """Create a speaker profile JSON from registration data and trigger scout."""
     try:
@@ -757,6 +827,11 @@ def _create_profile_and_run_scout(speaker_id: str, body):
         # Store full bio for context
         if body.bio:
             profile['bio'] = body.bio
+
+        # Clean and normalize free-text fields before saving
+        profile = _clean_profile_with_ai(profile)
+
+        logger.info(f"[SCOUT] Profile created for {speaker_id}, cleaned with AI, now saving and running scout")
 
         # Save profile JSON
         profile_dir = Path('config/speaker_profiles')
@@ -1091,6 +1166,72 @@ Return JSON only, no markdown, no extra text."""
         raise HTTPException(status_code=500, detail="Failed to parse AI response")
     except Exception as e:
         logger.error(f"[TOPICS] Error generating topics for {speaker_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Niche keywords ──────────────────────────────────────────
+
+class NicheKeywordsRequest(BaseModel):
+    # speaker_id: Optional[str] = None
+    bio: Optional[str] = None
+    tagline: Optional[str] = None
+    credentials: Optional[str] = None
+    topics: Optional[List[str]] = None
+
+
+@app.post("/api/niche-keywords")
+def niche_keywords(body: NicheKeywordsRequest, _: None = Depends(verify_api_key)):
+    """Generate niche keyword suggestions for a speaker based on their profile."""
+    api_key = os.getenv('CLAUDE_API_KEY', '')
+    if not api_key:
+        raise HTTPException(status_code=503, detail="CLAUDE_API_KEY not configured")
+    
+
+    topics_str = ', '.join(body.topics) if body.topics else 'None provided'
+
+    prompt = f"""You are a speaking industry SEO and positioning expert.
+
+Given the following speaker profile, generate niche keyword phrases that:
+1. Precisely describe the speaker's unique expertise and positioning
+2. Are specific enough to differentiate them (avoid generic terms like "leadership" or "innovation")
+3. Would be used by event organizers searching for speakers on these exact topics
+4. Mix long-tail phrases (3-5 words) with niche single terms
+5. Include industry-specific jargon and terminology they own
+
+SPEAKER PROFILE:
+- Tagline / Grit Factor: {body.tagline or 'Not provided'}
+- Credentials: {body.credentials or 'Not provided'}
+- Topics: {topics_str}
+- Bio: {(body.bio or '')[:800]}
+
+Return ONLY a valid JSON object with these keys:
+- "primary_keywords": array of 5 high-priority niche keyword phrases (most specific to their unique angle)
+
+Return JSON only, no markdown, no extra text."""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-6')
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = response.content[0].text.strip()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1:
+            logger.error(f"[KEYWORDS] No JSON in Claude response: {text[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+        result = json.loads(text[start:end + 1])
+        logger.info(f"[KEYWORDS] Generated niche keywords")
+        return result
+    except json.JSONDecodeError as e:
+        logger.error(f"[KEYWORDS] JSON parse error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse AI response")
+    except Exception as e:
+        logger.error(f"[KEYWORDS] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

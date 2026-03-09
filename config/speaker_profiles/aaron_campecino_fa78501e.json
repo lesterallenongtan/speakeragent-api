@@ -8,7 +8,12 @@
     {
       "topic": "Code Red Leadership: Crisis Decisions Under Pressure",
       "description": "Drawing from 30+ years of ER decision-making, this session delivers a battlefield-tested framework for making high-stakes leadership calls fast, clearly, and confidently when it matters most.",
-      "audience": ""
+      "audience": "Senior leaders, executives, and managers in high-pressure industries"
+    },
+    {
+      "topic": "Flatline to Frontline: Resurrecting Team Resilience",
+      "description": "Using real ER case studies, this talk shows leaders how to rebuild burned-out, overwhelmed teams and restore peak performance when the pressure never stops.",
+      "audience": "HR leaders, team managers, and organizational development professionals"
     }
   ],
   "target_industries": [
@@ -17,7 +22,8 @@
   "target_geography": "US",
   "min_honorarium": 5000,
   "discussion_points": [
-    "Code Red Leadership: Crisis Decisions Under Pressure"
+    "Code Red Leadership: Crisis Decisions Under Pressure",
+    "Flatline to Frontline: Resurrecting Team Resilience"
   ],
   "linkedin": "",
   "website": "",
