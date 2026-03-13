@@ -18,6 +18,7 @@ class Settings:
     LEADS_TABLE = os.getenv('AIRTABLE_LEADS_TABLE', 'Conferences')
     SPEAKERS_TABLE = os.getenv('AIRTABLE_SPEAKERS_TABLE', 'Speakers')
     PERSONA_TABLE = os.getenv('AIRTABLE_PERSONA_TABLE', 'Speaker_Persona')
+    CONTACTS_TABLE = os.getenv('AIRTABLE_CONTACTS_TABLE', 'Contacts')
 
     # Deployment / CORS
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000')
@@ -27,6 +28,9 @@ class Settings:
 
     # Admin
     ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', '')
+
+    # Apify — podcast directory scraper (optional; scraper skips gracefully if absent)
+    APIFY_TOKEN = os.getenv('APIFY_TOKEN', '')
 
     # Scheduler
     ENABLE_CRON = os.getenv('ENABLE_CRON', 'true').lower() == 'true'

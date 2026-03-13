@@ -186,5 +186,20 @@ def create_profile_and_run_scout(
         from src.api.dashboard_api import _run_scout_for_speaker
         _run_scout_for_speaker(speaker_id, profile_path, persona_record_id)
 
+        # Launch Apify podcast scraper concurrently — runs in parallel with scout results
+        import threading as _threading
+        from src.api.podcast_scraper import run_apify_podcast_scraper
+        _podcast_thread = _threading.Thread(
+            target=run_apify_podcast_scraper,
+            args=(speaker_id, profile, persona_record_id),
+            daemon=True,
+            name=f'apify-podcast-{speaker_id}',
+        )
+        _podcast_thread.start()
+        logger.info(
+            f'[PROFILE] Apify podcast scraper thread launched for {speaker_id} '
+            f'(thread={_podcast_thread.name})'
+        )
+
     except Exception as e:
         logger.error(f'[PROFILE] Failed for {speaker_id}: {e}', exc_info=True)

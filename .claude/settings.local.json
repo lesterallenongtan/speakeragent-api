@@ -19,7 +19,9 @@
       "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort, State, OwningProcess\")",
       "Bash(powershell -Command \"Stop-Process -Id 19692 -Force; Write-Output ''Killed 19692''\")",
       "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8000 | Select-Object OwningProcess\")",
-      "Bash(powershell -Command \"Get-Process -Id 47488 | Select-Object Id, Name, Path, CommandLine\")"
+      "Bash(powershell -Command \"Get-Process -Id 47488 | Select-Object Id, Name, Path, CommandLine\")",
+      "Bash(ls -la /d/workspace/nodejs/speakeragent/speakeragent-api/*.py)",
+      "Bash(find /d/workspace/nodejs/speakeragent/speakeragent-api/src -type f -name *.py)"
     ]
   }
 }

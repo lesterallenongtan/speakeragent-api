@@ -251,6 +251,24 @@ def delete_persona(speaker_id: str, persona_id: str, _: None = Depends(verify_ap
     return {'deleted': True, 'persona_id': persona_id}
 
 
+@router.get('/api/speaker/{speaker_id}/persona/{persona_id}/leads')
+def get_persona_leads(speaker_id: str, persona_id: str, _: None = Depends(verify_api_key)):
+    """Get all leads for a specific persona, sorted by Match Score desc."""
+    at = _get_airtable()
+
+    record = at.get_persona_by_id(persona_id)
+    if not record:
+        raise HTTPException(status_code=404, detail='Persona not found')
+    if record.get('fields', {}).get('speaker_id') != speaker_id:
+        raise HTTPException(status_code=403, detail='Persona does not belong to this speaker')
+
+    records = at.get_leads(speaker_id=speaker_id, persona_id=persona_id)
+    leads = [{'id': r['id'], **r.get('fields', {})} for r in records]
+    leads.sort(key=lambda l: l.get('Match Score', 0), reverse=True)
+
+    return {'speaker_id': speaker_id, 'persona_id': persona_id, 'count': len(leads), 'leads': leads}
+
+
 @router.post('/api/speaker/{speaker_id}/persona/{persona_id}/scout', status_code=202)
 def run_scout_for_persona(speaker_id: str, persona_id: str, _: None = Depends(verify_api_key)):
     """Trigger a scout run for a specific persona."""

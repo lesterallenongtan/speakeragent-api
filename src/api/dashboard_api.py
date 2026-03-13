@@ -24,7 +24,9 @@ from pydantic import BaseModel
 
 from config.settings import Settings
 from src.api.airtable import AirtableAPI
+from src.api.admin_api import router as admin_router
 from src.api.checklist_api import router as checklist_router
+from src.api.contact_api import router as contact_router
 from src.api.persona_api import router as persona_router, _body_to_fields as _persona_fields_from_body
 from src.api.deps import verify_api_key, TIER_MAX_PERSONAS
 
@@ -286,7 +288,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.include_router(admin_router)
 app.include_router(checklist_router)
+app.include_router(contact_router)
 app.include_router(persona_router)
 
 @app.exception_handler(RequestValidationError)
@@ -877,6 +881,8 @@ def register_speaker(body: SpeakerRegistration):
         'Plan': 'Pro',
         'scouts_used': 0,
         'scouts_reset_date': date.today().isoformat(),
+        'status': 'active',
+        'created_at': date.today().isoformat(),
     }
     record = at.create_speaker(speaker_fields)
     if not record:
@@ -1716,36 +1722,6 @@ def admin_overview(request: Request):
         "triage_breakdown": triage_counts,
     }
 
-
-@app.get("/api/admin/speakers")
-def admin_speakers(request: Request):
-    """List all speakers with lead counts and avg scores."""
-    _check_admin(request)
-    at = get_airtable()
-
-    speakers = at.list_active_speakers()
-    result = []
-    for s in speakers:
-        f = s.get('fields', {})
-        sid = f.get('speaker_id', '')
-        if not sid:
-            continue
-
-        # Get lead stats for this speaker
-        stats = at.get_lead_stats(sid)
-
-        result.append({
-            "id": s["id"],
-            "speaker_id": sid,
-            "full_name": f.get('full_name', ''),
-            "email": f.get('email', ''),
-            "created_at": f.get('created_at', ''),
-            "status": f.get('status', ''),
-            "lead_count": stats.get('total', 0),
-            "avg_score": stats.get('avg_score', 0),
-        })
-
-    return {"speakers": result}
 
 
 @app.get("/api/admin/speakers/{speaker_id}/leads")

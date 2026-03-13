@@ -21,7 +21,7 @@ def clean_payload(fields: dict) -> dict:
     """
     cleaned = {}
     # These Airtable fields are dateTime type — need ISO 8601 with time
-    datetime_fields = {'Date Found', 'Event Date', 'created_at'}
+    datetime_fields = {'Date Found', 'Event Date', 'created_at', 'date_added', 'last_contacted'}
     number_fields = {'Match Score', 'years_experience', 'min_honorarium', 'scouts_used'}
 
     for key, value in fields.items():
@@ -53,12 +53,14 @@ class AirtableAPI:
     def __init__(self, api_key: str, base_id: str,
                  leads_table: str = 'Conferences',
                  speakers_table: str = 'Speakers',
-                 persona_table: str = 'Speaker_Persona'):
+                 persona_table: str = 'Speaker_Persona',
+                 contacts_table: str = 'Contacts'):
         self.api_key = api_key
         self.base_id = base_id
         self.leads_table = leads_table
         self.speakers_table = speakers_table
         self.persona_table = persona_table
+        self.contacts_table = contacts_table
         self.base_url = f'https://api.airtable.com/v0/{base_id}'
         self.headers = {
             'Authorization': f'Bearer {api_key}',
@@ -676,4 +678,114 @@ class AirtableAPI:
             return True
         except Exception as e:
             logger.error(f"[ATTACH] Failed to upload '{filename}' to {record_id}: {e}")
+            return False
+
+    # ── Contacts table ────────────────────────────────────────────
+
+    def contact_exists(self, speaker_id: str, email: str) -> bool:
+        """Check if a contact with this email already exists for the speaker."""
+        safe_email = email.replace("'", "\\'")
+        formula = f"AND({{speaker_id}} = '{speaker_id}', {{email}} = '{safe_email}')"
+        try:
+            resp = requests.get(
+                f'{self.base_url}/{self.contacts_table}',
+                headers=self.headers,
+                params={'filterByFormula': formula, 'pageSize': 1},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return len(resp.json().get('records', [])) > 0
+        except Exception as e:
+            logger.error(f"Contact dedup check failed: {e}")
+            return False
+
+    def create_contact(self, fields: dict) -> Optional[dict]:
+        """Create a contact record in the Contacts table."""
+        payload = {'fields': clean_payload(fields)}
+        try:
+            resp = requests.post(
+                f'{self.base_url}/{self.contacts_table}',
+                headers=self.headers,
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 422:
+                logger.error(f"Airtable 422 creating contact: {resp.text}")
+                return None
+            resp.raise_for_status()
+            record = resp.json()
+            logger.info(f"Created contact: {fields.get('full_name', '')} (id={record.get('id')})")
+            return record
+        except Exception as e:
+            logger.error(f"Failed to create contact: {e}")
+            return None
+
+    def get_contacts(self, speaker_id: str) -> List[dict]:
+        """Fetch all contact records for a speaker."""
+        params = {'filterByFormula': f"{{speaker_id}} = '{speaker_id}'"}
+        all_records = []
+        offset = None
+        while True:
+            if offset:
+                params['offset'] = offset
+            try:
+                resp = requests.get(
+                    f'{self.base_url}/{self.contacts_table}',
+                    headers=self.headers,
+                    params=params,
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                all_records.extend(data.get('records', []))
+                offset = data.get('offset')
+                if not offset:
+                    break
+            except Exception as e:
+                logger.error(f"Failed to fetch contacts for {speaker_id}: {e}")
+                break
+        return all_records
+
+    def get_contact_by_id(self, contact_id: str) -> Optional[dict]:
+        """Fetch a single contact by Airtable record ID."""
+        try:
+            resp = requests.get(
+                f'{self.base_url}/{self.contacts_table}/{contact_id}',
+                headers=self.headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error(f"Failed to fetch contact {contact_id}: {e}")
+            return None
+
+    def update_contact(self, contact_id: str, fields: dict) -> Optional[dict]:
+        """Update a contact record."""
+        payload = {'fields': clean_payload(fields)}
+        try:
+            resp = requests.patch(
+                f'{self.base_url}/{self.contacts_table}/{contact_id}',
+                headers=self.headers,
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error(f"Failed to update contact {contact_id}: {e}")
+            return None
+
+    def delete_contact(self, contact_id: str) -> bool:
+        """Delete a contact record."""
+        try:
+            resp = requests.delete(
+                f'{self.base_url}/{self.contacts_table}/{contact_id}',
+                headers=self.headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete contact {contact_id}: {e}")
             return False
