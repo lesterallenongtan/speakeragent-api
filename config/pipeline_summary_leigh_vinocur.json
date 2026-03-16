@@ -1,0 +1,21 @@
+{
+  "total_urls": 51,
+  "scraped": 24,
+  "researched": 0,
+  "scored": 7,
+  "pushed": 4,
+  "skipped_duplicate": 17,
+  "skipped_scrape_fail": 27,
+  "skipped_score_fail": 0,
+  "skipped_rejected": 3,
+  "triage_counts": {
+    "RED": 0,
+    "YELLOW": 7,
+    "GREEN": 0
+  },
+  "agent_runs": {
+    "scout": 51,
+    "research": 0,
+    "pitch": 4
+  }
+}
